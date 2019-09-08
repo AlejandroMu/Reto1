@@ -4,12 +4,13 @@ package appmoviles.com.clase5jueves;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.location.Location;
+import android.location.Geocoder;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.view.View;
-import android.widget.TextView;
-
+import android.widget.*;
+import java.text.DecimalFormat;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
@@ -21,35 +22,74 @@ import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
 import com.google.maps.android.PolyUtil;
 
-import java.util.ArrayList;
+import java.util.*;
+import android.location.Address;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.fragment.app.FragmentActivity;
+import android.view.*;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, LocationListener, GoogleMap.OnMapLongClickListener {
 
+    public static final double MIN_DISTANCIA=20.0;
     private GoogleMap mMap;
     private Polygon icesiArea;
     private Marker miUbicacion;
 
     private TextView sitioTV;
     private ArrayList<Marker> markers;
-
+    private boolean addMarker;
+    private Button addMarkerButton;
+    private LatLng tmp;
+    private EditText addtitle;
+    private Button add;
+    private Geocoder coder;
+    private double distance;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
-        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
+        distance=Double.MAX_VALUE;
         mapFragment.getMapAsync(this);
-
+        coder=new Geocoder(this);
         ActivityCompat.requestPermissions(this, new String[]{
                 Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
         }, 11);
 
+        add=findViewById(R.id.add);
+        add.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String msm=addtitle.getText().toString();
+                double d=distance(miUbicacion,tmp);
+                if(d<distance){
+                    distance=d;
+                    sitioTV.setText("El marcador: "+msm+" es el más cercano");
+                }
+                Marker marker =  mMap.addMarker(new MarkerOptions().position(tmp).title(msm).snippet("Distancia a mi ubicación: "+d));
+                addtitle.setVisibility(View.GONE);
+                addMarkerButton.setVisibility(View.VISIBLE);
+                add.setVisibility(View.GONE);
+                addtitle.setText("");
+                markers.add(marker);           
+             }
+
+        });
+
+
+        addMarkerButton=findViewById(R.id.addMarker);
+        addMarkerButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                addMarker=true;
+                addMarkerButton.setVisibility(View.GONE);
+
+            }
+        });
+
+        addtitle=findViewById(R.id.addTitle);
         sitioTV = findViewById(R.id.sitioTV);
         markers = new ArrayList<>();
     }
@@ -67,32 +107,31 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @SuppressLint("MissingPermission")
     @Override
     public void onMapReady(GoogleMap googleMap) {
+        boolean newL=mMap==null;
         mMap = googleMap;
-
+        // if(newL){
+        //     for (int i = 0; i < markers.size(); i++) {
+        //         mMap.addMarker();
+        //     }
+        // }
         mMap.setOnMapLongClickListener(this);
-
-        // Add a marker in Sydney and move the camera
-
-        //SUPIZQ 3.343071,-76.530918
-        //SUPDER 3.343350,-76.527615
-        //INFDER 3.338680,-76.527208
-        //INDIZQ 3.338509,-76.531390
-        icesiArea = mMap.addPolygon(new PolygonOptions().add(
-                new LatLng(3.343071, -76.530918),
-                new LatLng(3.343350, -76.527615),
-                new LatLng(3.338680, -76.527208),
-                new LatLng(3.338509, -76.531390)
-        ));
-
         LatLng icesi = new LatLng(3.341552, -76.529784);
-        miUbicacion = mMap.addMarker(new MarkerOptions().position(icesi).title("Icesi"));
-        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(icesi, 15));
-
+        if(miUbicacion==null){
+            miUbicacion = mMap.addMarker(new MarkerOptions().position(icesi).title("Icesi"));
+        }
+        addAdress(miUbicacion);
+        mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(miUbicacion.getPosition(), 15));
 
         //Solicitud de ubicación
-        LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
+        LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);        
         manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, this);
+    }
+
+    public double distance(Marker a,LatLng b){
+        double distance = Math.sqrt( Math.pow(a.getPosition().latitude-b.latitude,2) + Math.pow(a.getPosition().longitude-b.longitude,2) );
+        distance = distance * 111.12 * 1000;
+        DecimalFormat f=new DecimalFormat("#0.00000");
+        return Double.parseDouble(f.format(distance));
     }
 
     @Override
@@ -100,16 +139,29 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         LatLng pos = new LatLng(location.getLatitude(), location.getLongitude());
         miUbicacion.setPosition(pos);
         mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(pos, 15));
+        addAdress(miUbicacion);
+        calcualateDistance();
+    }
 
-        boolean isInIcesi = PolyUtil.containsLocation(pos, icesiArea.getPoints(), true);
-
-        if (isInIcesi) {
-            sitioTV.setVisibility(View.VISIBLE);
-        } else {
-            sitioTV.setVisibility(View.GONE);
+    public void calcualateDistance(){
+        if(markers.size()>=1){
+            Marker min=markers.get(0);
+            distance=distance(min,miUbicacion.getPosition());
+            for (int i = 1; i < markers.size(); i++) {
+                Marker marker=markers.get(i);
+                double tmp=distance(marker,miUbicacion.getPosition());
+                marker.setSnippet("Distancia a mi ubicación: "+tmp+" metros");
+                if(tmp<distance){
+                    min=marker;
+                    distance=tmp;
+                }
+            }
+            String msm="Usted esta en: ";
+            if(distance<MIN_DISTANCIA){
+                msm="El marcador: ";
+            }
+            sitioTV.setText(msm+min.getTitle());
         }
-
-
     }
 
     @Override
@@ -131,17 +183,31 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     //Si dejamos sostenido el dedo 1.5 s
     @Override
     public void onMapLongClick(LatLng latLng) {
-        Marker marker =  mMap.addMarker(new MarkerOptions().position(latLng));
-        markers.add(marker);
+        if(addMarker){
+            addtitle.setVisibility(View.VISIBLE);
+            add.setVisibility(View.VISIBLE);
 
-        if(markers.size() >= 2){
-
-            Marker a = markers.get(markers.size ()-1);
-            Marker b = markers.get(markers.size()-2);
-            double distance = Math.sqrt( Math.pow(a.getPosition().latitude-b.getPosition().latitude,2) + Math.pow(a.getPosition().longitude-b.getPosition().longitude,2) );
-            distance = distance * 111.12 * 1000;
-            sitioTV.setText("d="+distance);
-
+            tmp=latLng;
+            addMarker=false;
+            
         }
+    }
+
+    public boolean addAdress(Marker marker){
+        try {
+            LatLng tmp=marker.getPosition();
+            List<Address> address=coder.getFromLocation(tmp.latitude,tmp.longitude,1);
+            if(address!=null){
+                Address adr=address.get(0);
+                String name=adr.getAddressLine(0);
+                miUbicacion.setTitle(name);
+                miUbicacion.setSnippet("Mi Ubicación");
+            }
+        return true;
+            
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            return false;
+        }   
     }
 }
